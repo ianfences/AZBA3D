@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adult Zebrafish Brain Atlas 3D</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0a0a0f; color: #e8e8f0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid #222; background: #0f0f1a; flex-shrink: 0; }
+  header h1 { font-size: 16px; font-weight: 500; letter-spacing: 0.04em; color: #a0c4ff; }
+  header span { font-size: 12px; color: #555; }
+  .main { display: flex; flex: 1; overflow: hidden; }
+  #sidebar { width: 240px; background: #0f0f1a; border-right: 1px solid #1e1e2e; display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
+  #sidebar-header { padding: 12px 14px 8px; border-bottom: 1px solid #1e1e2e; }
+  #search { width: 100%; background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 6px; padding: 6px 10px; color: #e8e8f0; font-size: 12px; outline: none; }
+  #search:focus { border-color: #4a7fd4; }
+  #region-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+  .region-item { display: flex; align-items: center; gap: 8px; padding: 5px 14px; cursor: pointer; font-size: 12px; color: #aaa; transition: background 0.1s; user-select: none; }
+  .region-item:hover { background: #1a1a2e; color: #e8e8f0; }
+  .region-item.active { background: #1a2a4a; color: #a0c4ff; }
+  .region-item.hidden-region { opacity: 0.35; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .region-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .eye-btn { font-size: 11px; color: #444; flex-shrink: 0; }
+  .region-item:hover .eye-btn { color: #888; }
+  #viewport { flex: 1; position: relative; }
+  #canvas { width: 100%; height: 100%; display: block; }
+  #info { position: absolute; bottom: 20px; right: 20px; background: #0f0f1aee; border: 1px solid #2a2a3e; border-radius: 10px; padding: 14px 16px; min-width: 220px; max-width: 280px; display: none; }
+  #info h2 { font-size: 14px; font-weight: 500; color: #a0c4ff; margin-bottom: 4px; }
+  #info .info-abbr { font-size: 11px; color: #555; margin-bottom: 8px; }
+  #info .info-row { display: flex; justify-content: space-between; font-size: 12px; color: #888; padding: 2px 0; }
+  #info .info-row span:last-child { color: #ccc; }
+  #info-close { position: absolute; top: 8px; right: 10px; background: none; border: none; color: #555; cursor: pointer; font-size: 16px; line-height: 1; }
+  #info-hide { margin-top: 10px; width: 100%; background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 6px; color: #aaa; padding: 5px; font-size: 11px; cursor: pointer; }
+  #info-hide:hover { background: #2a2a3e; color: #e8e8f0; }
+  #controls { position: absolute; top: 14px; right: 14px; display: flex; flex-direction: column; gap: 6px; min-width: 160px; }
+  .ctrl-btn { background: #0f0f1acc; border: 1px solid #2a2a3e; border-radius: 6px; color: #aaa; padding: 6px 12px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+  .ctrl-btn:hover { background: #1a1a2ecc; color: #e8e8f0; }
+  .ctrl-slider { background: #0f0f1acc; border: 1px solid #2a2a3e; border-radius: 6px; padding: 7px 12px; font-size: 11px; color: #aaa; }
+  .ctrl-slider label { display: flex; justify-content: space-between; margin-bottom: 5px; }
+  .ctrl-slider input[type=range] { width: 100%; accent-color: #4a7fd4; cursor: pointer; }
+  #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0a0a0f; gap: 12px; }
+  #loading-bar-wrap { width: 200px; height: 3px; background: #1a1a2e; border-radius: 2px; }
+  #loading-bar { height: 100%; background: #4a7fd4; border-radius: 2px; width: 0%; transition: width 0.2s; }
+  #loading-text { font-size: 12px; color: #555; }
+  #hint { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 11px; color: #333; pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Adult Zebrafish Brain Atlas 3D</h1>
+  <span id="loaded-count">Loading...</span>
+</header>
+<div class="main">
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <input id="search" type="text" placeholder="Search regions..." />
+    </div>
+    <div id="region-list"></div>
+  </div>
+  <div id="viewport">
+    <canvas id="canvas"></canvas>
+    <div id="loading">
+      <div style="font-size:13px;color:#555;">Loading brain regions...</div>
+      <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+      <div id="loading-text">0 / 0</div>
+    </div>
+    <div id="controls">
+      <button class="ctrl-btn" id="btn-rotate">Auto-rotate: ON</button>
+      <button class="ctrl-btn" id="btn-all">Show all</button>
+      <button class="ctrl-btn" id="btn-none">Hide all</button>
+      <button class="ctrl-btn" id="btn-reset">Reset view</button>
+      <div class="ctrl-slider">
+        <label><span>Opacity</span><span id="opacity-val">85%</span></label>
+        <input type="range" id="opacity-slider" min="5" max="100" value="85" step="1">
+      </div>
+      <div class="ctrl-slider">
+        <label><span>Shininess</span><span id="shine-val">40</span></label>
+        <input type="range" id="shine-slider" min="0" max="150" value="40" step="5">
+      </div>
+    </div>
+    <div id="info">
+      <button id="info-close">x</button>
+      <h2 id="info-name"></h2>
+      <div class="info-abbr" id="info-abbr"></div>
+      <div class="info-row"><span>Region ID</span><span id="info-id"></span></div>
+      <div class="info-row"><span>Voxels</span><span id="info-voxels"></span></div>
+      <div class="info-row"><span>Faces</span><span id="info-faces"></span></div>
+      <button id="info-hide">Hide this region</button>
+    </div>
+    <div id="hint">Left-drag: rotate · Right-drag: pan · Scroll: zoom · Shift+click: multi-select</div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── Renderer ──────────────────────────────────────────────────
+var canvas = document.getElementById('canvas');
+var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x0a0a0f);
+
+var scene = new THREE.Scene();
+var camera = new THREE.PerspectiveCamera(45, 1, 0.0001, 100);
+camera.position.set(0, 0.2, 2.5);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+var dl = new THREE.DirectionalLight(0xffffff, 0.9);
+dl.position.set(2, 3, 3); scene.add(dl);
+var dl2 = new THREE.DirectionalLight(0x88aaff, 0.4);
+dl2.position.set(-2, -1, -2); scene.add(dl2);
+
+function resize() {
+  var vp = document.getElementById('viewport');
+  renderer.setSize(vp.clientWidth, vp.clientHeight);
+  camera.aspect = vp.clientWidth / vp.clientHeight;
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── Brain group ───────────────────────────────────────────────
+var brainGroup = new THREE.Group();
+scene.add(brainGroup);
+
+// ── Controls ──────────────────────────────────────────────────
+var isDrag = false, isPan = false, autoRotate = true;
+var panX = 0, panY = 0, lastX, lastY;
+var quaternion = new THREE.Quaternion();
+quaternion.setFromEuler(new THREE.Euler(0.2, 0, 0));
+
+canvas.addEventListener('mousedown', function(e) {
+  if (e.button === 2 || e.button === 1) { isPan = true; }
+  else { isDrag = true; autoRotate = false; document.getElementById('btn-rotate').textContent = 'Auto-rotate: OFF'; }
+  lastX = e.clientX; lastY = e.clientY;
+});
+window.addEventListener('mousemove', function(e) {
+  var dx = e.clientX - lastX, dy = e.clientY - lastY;
+  if (isPan) { panX += dx * 0.002; panY -= dy * 0.002; }
+  else if (isDrag) {
+    var qY = new THREE.Quaternion(); qY.setFromAxisAngle(new THREE.Vector3(0,1,0), dx * 0.005);
+    var qX = new THREE.Quaternion(); qX.setFromAxisAngle(new THREE.Vector3(1,0,0), dy * 0.005);
+    quaternion.premultiply(qY).premultiply(qX);
+  }
+  lastX = e.clientX; lastY = e.clientY;
+});
+window.addEventListener('mouseup', function() { isDrag = false; isPan = false; });
+canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+canvas.addEventListener('wheel', function(e) {
+  camera.position.z = Math.max(0.3, Math.min(5, camera.position.z + e.deltaY * 0.001));
+});
+
+// ── GLB loader ────────────────────────────────────────────────
+function loadGLB(url) {
+  return fetch(url).then(function(r) {
+    if (!r.ok) throw new Error('404');
+    return r.arrayBuffer();
+  }).then(function(buf) {
+    var dv = new DataView(buf);
+    var jsonLen = dv.getUint32(12, true);
+    var jsonStr = new TextDecoder().decode(new Uint8Array(buf, 20, jsonLen));
+    var gltf = JSON.parse(jsonStr);
+    var binOffset = 20 + jsonLen + 8;
+    var bin = buf.slice(binOffset);
+    var prim = gltf.meshes[0].primitives[0];
+    var posAcc = gltf.accessors[prim.attributes.POSITION];
+    var idxAcc = gltf.accessors[prim.indices];
+    var posBv = gltf.bufferViews[posAcc.bufferView];
+    var idxBv = gltf.bufferViews[idxAcc.bufferView];
+    var positions = new Float32Array(bin, posBv.byteOffset || 0, posBv.byteLength / 4);
+    var indices;
+    if (idxAcc.componentType === 5125) {
+      indices = new Uint32Array(bin, idxBv.byteOffset || 0, idxBv.byteLength / 4);
+    } else if (idxAcc.componentType === 5123) {
+      indices = new Uint16Array(bin, idxBv.byteOffset || 0, idxBv.byteLength / 2);
+    } else {
+      indices = new Uint8Array(bin, idxBv.byteOffset || 0, idxBv.byteLength);
+    }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions.slice(), 3));
+    geo.setIndex(new THREE.BufferAttribute(indices.slice(), 1));
+    geo.computeVertexNormals();
+    return geo;
+  });
+}
+
+// ── State ─────────────────────────────────────────────────────
+var meshMap = {};
+var regionMeta = {};
+var selectedIds = new Set();
+var lastSelectedId = null;
+var currentOpacity = 0.85;
+
+// ── Helpers ───────────────────────────────────────────────────
+function highlightMesh(id) {
+  if (!meshMap[id]) return;
+  meshMap[id].material.color.setRGB(1, 1, 0.3);
+  meshMap[id].material.opacity = 1.0;
+}
+function unhighlightMesh(id) {
+  if (!meshMap[id] || !regionMeta[id]) return;
+  var c = regionMeta[id].color;
+  meshMap[id].material.color.setRGB(c[0]/255, c[1]/255, c[2]/255);
+  meshMap[id].material.opacity = currentOpacity;
+}
+function showInfoPanel(id) {
+  var reg = regionMeta[id];
+  if (!reg) return;
+  document.getElementById('info-name').textContent = reg.name;
+  document.getElementById('info-abbr').textContent = 'ID: ' + reg.id;
+  document.getElementById('info-id').textContent = reg.id;
+  document.getElementById('info-voxels').textContent = reg.voxels ? reg.voxels.toLocaleString() : '-';
+  document.getElementById('info-faces').textContent = reg.faces ? reg.faces.toLocaleString() : '-';
+  document.getElementById('info').style.display = 'block';
+}
+function hideRegionById(id) {
+  if (!meshMap[id]) return;
+  meshMap[id].visible = false;
+  var item = document.querySelector('.region-item[data-id="' + id + '"]');
+  if (item) { item.classList.add('hidden-region'); item.classList.remove('active'); }
+  unhighlightMesh(id);
+  selectedIds.delete(id);
+  if (id === lastSelectedId) {
+    if (selectedIds.size > 0) {
+      lastSelectedId = Array.from(selectedIds).pop();
+      showInfoPanel(lastSelectedId);
+    } else {
+      lastSelectedId = null;
+      document.getElementById('info').style.display = 'none';
+    }
+  }
+}
+function selectRegion(id, item, shiftHeld) {
+  if (shiftHeld) {
+    if (selectedIds.has(id)) {
+      selectedIds.delete(id);
+      unhighlightMesh(id);
+      if (item) item.classList.remove('active');
+      if (selectedIds.size > 0) {
+        lastSelectedId = Array.from(selectedIds).pop();
+        showInfoPanel(lastSelectedId);
+      } else {
+        lastSelectedId = null;
+        document.getElementById('info').style.display = 'none';
+      }
+    } else {
+      selectedIds.add(id);
+      highlightMesh(id);
+      if (item) item.classList.add('active');
+      lastSelectedId = id;
+      showInfoPanel(id);
+    }
+  } else {
+    if (selectedIds.size === 1 && selectedIds.has(id)) {
+      selectedIds.clear();
+      unhighlightMesh(id);
+      if (item) item.classList.remove('active');
+      document.getElementById('info').style.display = 'none';
+      lastSelectedId = null;
+    } else {
+      selectedIds.forEach(function(sid) { unhighlightMesh(sid); });
+      document.querySelectorAll('.region-item').forEach(function(el) { el.classList.remove('active'); });
+      selectedIds.clear();
+      selectedIds.add(id);
+      highlightMesh(id);
+      if (item) item.classList.add('active');
+      lastSelectedId = id;
+      showInfoPanel(id);
+    }
+  }
+}
+
+// ── Region list ───────────────────────────────────────────────
+var REGIONS = [
+  {id:1,   name:"A (anterior thalamic nucleus)",                        file:"region_0001_A__anterior_thalamic_nucleus_.glb",                                    color:[255,200,100]},
+  {id:2,   name:"AC (anterior cerebellar tract)",                       file:"region_0002_AC__anterior_cerebellar_tract_.glb",                                   color:[100,200,255]},
+  {id:3,   name:"ALLN (anterior lateral line nerves)",                  file:"region_0003_ALLN__anterior_lateral_line_nerves_.glb",                              color:[200,100,255]},
+  {id:4,   name:"AON (anterior octaval nucleus)",                       file:"region_0004_AON__anterior_octaval_nucleus_.glb",                                   color:[100,255,180]},
+  {id:5,   name:"APN (accessory pretectal nucleus)",                    file:"region_0005_APN__accessory_pretectal_nucleus_.glb",                                color:[255,120,120]},
+  {id:6,   name:"ATN (anterior tuberal nucleus)",                       file:"region_0006_ATN__anterior_tuberal_nucleus_.glb",                                   color:[120,255,120]},
+  {id:7,   name:"BSTa (bed nucleus stria terminalis anterior)",         file:"region_0007_BSTa__bed_nucleus_of_the_stria_terminalis__anterior_division_.glb",    color:[255,180,80]},
+  {id:8,   name:"BSTm (bed nucleus stria terminalis medial)",           file:"region_0008_BSTm__bed_nucleus_of_the_stria_terminalis__medial_division_.glb",      color:[80,180,255]},
+  {id:9,   name:"BSTpd (bed nucleus stria terminalis posterior)",       file:"region_0009_BSTpd__bed_nucleus_of_the_stria_terminalis__posterior_division_.glb",  color:[255,80,180]},
+  {id:10,  name:"C (central canal)",                                    file:"region_0010_C__central_canal_.glb",                                                color:[180,180,100]},
+  {id:11,  name:"Cans (ansulate commissure)",                           file:"region_0011_Cans__ansulate_commissure_.glb",                                       color:[180,255,80]},
+  {id:12,  name:"Cantd (anterior commissure dorsal)",                   file:"region_0012_Cantd__anterior_commissure__dorsal_part_.glb",                         color:[255,200,200]},
+  {id:13,  name:"Cantv (anterior commissure ventral)",                  file:"region_0013_Cantv__anterior_commissure__ventral_part_.glb",                        color:[200,200,255]},
+  {id:14,  name:"CC (cerebellar crest)",                                file:"region_0014_CC__cerebellar_crest_.glb",                                            color:[200,255,200]},
+  {id:15,  name:"CCe-g (cerebellar corpus granular layer)",             file:"region_0015_CCe-g__cerebellar_corpus__granular_layer_.glb",                        color:[255,160,60]},
+  {id:16,  name:"CCe-m (cerebellar corpus molecular layer)",            file:"region_0016_CCe-m__cerebellar_corpus__molecular_layer_.glb",                       color:[60,160,255]},
+  {id:17,  name:"Ccer (cerebellar commissure)",                         file:"region_0017_Ccer__cerebellar_commissure_.glb",                                     color:[160,60,255]},
+  {id:18,  name:"Cgus (commissure secondary gustatory nuclei)",         file:"region_0018_Cgus__commissure_of_the_secondary_gustatory_nuclei_.glb",              color:[60,255,160]},
+  {id:19,  name:"Chab (habenular commissure)",                          file:"region_0019_Chab__habenular_commissure_.glb",                                      color:[255,60,60]},
+  {id:20,  name:"Chor (horizontal commissure)",                         file:"region_0020_Chor__horizontal_commissure_.glb",                                     color:[255,60,160]},
+  {id:21,  name:"CIL (central nucleus inferior lobe)",                  file:"region_0021_CIL__central_nucleus_of_the_inferior_lobe_.glb",                       color:[160,255,60]},
+  {id:22,  name:"CL (central lobe cerebellum)",                         file:"region_0022_CL__central_lobe_of_cerebellum_.glb",                                  color:[255,140,40]},
+  {id:23,  name:"CM (mammillary body)",                                 file:"region_0023_CM__mammillary_body_.glb",                                             color:[255,220,150]},
+  {id:24,  name:"CO/OT (optic chiasm / optic tract)",                   file:"region_0024_CO_OT__optic_chiasm___optic_tract_.glb",                               color:[150,220,255]},
+  {id:25,  name:"CON (caudal octavolateralis nucleus)",                 file:"region_0025_CON__caudal_octavolateralis_nucleus_.glb",                             color:[220,150,255]},
+  {id:26,  name:"CP (central posterior thalamic nucleus)",              file:"region_0026_CP__central_posterior_thalamic_nucleus_.glb",                          color:[150,255,220]},
+  {id:27,  name:"CPN (central pretectal nucleus)",                      file:"region_0027_CPN__central_pretectal_nucleus_.glb",                                  color:[255,150,220]},
+  {id:28,  name:"CPop (supraoptic commissure)",                         file:"region_0028_CPop__supraoptic_commissure_.glb",                                     color:[220,255,150]},
+  {id:29,  name:"Cpost (posterior commissure)",                         file:"region_0029_Cpost__posterior_commissure_.glb",                                     color:[180,120,255]},
+  {id:30,  name:"Ctec (tectal commissure)",                             file:"region_0030_Ctec__tectal_commissure_.glb",                                         color:[255,120,180]},
+  {id:31,  name:"Ctub (commissure posterior tuberculum)",               file:"region_0031_Ctub__commissure_of_the_posterior_tuberculum_.glb",                    color:[120,255,220]},
+  {id:32,  name:"Cven (ventral rhombencephalic commissure)",            file:"region_0032_Cven__ventral_rhombencephalic_commisure_.glb",                         color:[220,120,255]},
+  {id:33,  name:"DAO (dorsal accessory optic nucleus)",                 file:"region_0033_DAO__dorsal_accessory_optic_nucleus_.glb",                             color:[120,220,255]},
+  {id:34,  name:"Dc (central zone dorsal telencephalon)",               file:"region_0034_Dc__central_zone_of_dorsal_telencephalon_area_.glb",                  color:[255,100,100]},
+  {id:35,  name:"DH (dorsal horn)",                                     file:"region_0035_DH__dorsal_horn_.glb",                                                 color:[100,255,100]},
+  {id:36,  name:"DIL (diffuse nucleus inferior lobe)",                  file:"region_0036_DIL__diffuse_nucleus_of_the_inferior_lobe_.glb",                       color:[100,100,255]},
+  {id:37,  name:"DiV (diencephalic ventricle)",                         file:"region_0037_DiV__diencephalic_ventricle_.glb",                                     color:[255,255,100]},
+  {id:38,  name:"Dl-g (lateral zone dorsal telencephalon granular)",    file:"region_0038_Dl-g__lateral_zone_of_dorsal_telencephalon__granular_layer_.glb",      color:[200,160,80]},
+  {id:39,  name:"Dl (lateral zone dorsal telencephalon)",               file:"region_0039_Dl__lateral_zone_of_the_dorsal_telencephalon_.glb",                   color:[255,100,255]},
+  {id:40,  name:"Dm (medial zone dorsal telencephalon)",                file:"region_0040_Dm__medial_zone_of_dorsal_telencephalon_.glb",                         color:[100,255,255]},
+  {id:41,  name:"DON (descending octaval nucleus)",                     file:"region_0041_DON__descending_octaval_nucleus_.glb",                                 color:[200,80,80]},
+  {id:42,  name:"DOT (dorsomedial optic tract)",                        file:"region_0042_DOT__dorsomedial_optic_tract_.glb",                                    color:[80,200,80]},
+  {id:43,  name:"Dp (posterior zone dorsal telencephalon)",             file:"region_0043_Dp__posterior_zone_of_dorsal_telencephalon_area_.glb",                color:[80,80,200]},
+  {id:44,  name:"DP (dorsal posterior thalamic nucleus)",               file:"region_0044_DP__dorsal_posterior_thalamic_nucleus_.glb",                           color:[200,200,80]},
+  {id:45,  name:"DR (dorsal root)",                                     file:"region_0045_DR__dorsal_root_.glb",                                                 color:[200,80,200]},
+  {id:46,  name:"DTN (dorsal tegmental nucleus)",                       file:"region_0046_DTN__dorsal_tegmental_nucleus_.glb",                                   color:[80,200,200]},
+  {id:47,  name:"DV (descending trigeminal root)",                      file:"region_0047_DV__descending_trigeminal_root_.glb",                                  color:[255,140,40]},
+  {id:48,  name:"E (epiphysis)",                                        file:"region_0048_E__epiphysis_.glb",                                                    color:[40,140,255]},
+  {id:49,  name:"ECL (external cellular layer olfactory bulb)",         file:"region_0049_ECL__external_cellular_layer_of_olfactory_bulb_.glb",                 color:[140,40,255]},
+  {id:50,  name:"EG (granular eminence)",                               file:"region_0050_EG__granular_eminence_.glb",                                           color:[40,255,140]},
+  {id:51,  name:"EmTl (lateral thalamic eminence)",                     file:"region_0051_EmTl__lateral_thalamic_eminence_.glb",                                 color:[255,40,140]},
+  {id:52,  name:"EmTm (medial thalamic eminence)",                      file:"region_0052_EmTm__medial_thalamic_eminence_.glb",                                  color:[140,255,40]},
+  {id:53,  name:"EmTr (rostral thalamic eminence)",                     file:"region_0053_EmTr__rostral_thalamic_eminence_.glb",                                 color:[240,180,120]},
+  {id:54,  name:"ENd (entopeduncular nucleus dorsal)",                  file:"region_0054_ENd__entopeduncular_nucleus__dorsal_part_.glb",                        color:[120,180,240]},
+  {id:55,  name:"ENv (entopeduncular nucleus ventral)",                 file:"region_0055_ENv__entopeduncular_nucleus__ventral_part_.glb",                       color:[180,120,240]},
+  {id:56,  name:"EW (Edinger-Westphal nucleus)",                        file:"region_0056_EW__Edinger-Westphal_nucleus_.glb",                                   color:[120,240,180]},
+  {id:57,  name:"Flv (ventral lateral funiculus)",                      file:"region_0057_Flv__ventral_part_of_lateral_funiculus_.glb",                         color:[240,120,180]},
+  {id:58,  name:"FR (habenulo-interpeduncular tract)",                  file:"region_0058_FR__habenulo-interpeduncular_tract_.glb",                              color:[180,240,120]},
+  {id:59,  name:"Fv (ventral funiculus)",                               file:"region_0059_Fv__ventral_funiculus_.glb",                                           color:[255,200,80]},
+  {id:60,  name:"GC (central gray)",                                    file:"region_0060_GC__central_gray_.glb",                                                color:[80,200,255]},
+  {id:61,  name:"GL (glomerular layer olfactory bulb)",                 file:"region_0061_GL__glomerular_layer_of_olfactory_bulb_.glb",                          color:[200,80,255]},
+  {id:62,  name:"Had (dorsal habenular nucleus)",                       file:"region_0062_Had__dorsal_habenular_nucleus_.glb",                                   color:[80,255,200]},
+  {id:63,  name:"Hav (ventral habenular nucleus)",                      file:"region_0063_Hav__ventral_habenular_nucleus_.glb",                                  color:[255,80,200]},
+  {id:64,  name:"Hc (caudal periventricular hypothalamus)",             file:"region_0064_Hc__caudal_zone_of_periventricular_hypothalamus_.glb",                color:[200,255,80]},
+  {id:65,  name:"Hd (dorsal periventricular hypothalamus)",             file:"region_0065_Hd__dorsal_zone_of_periventricular_hypothalamus_.glb",                color:[255,160,160]},
+  {id:66,  name:"Hv (ventral periventricular hypothalamus)",            file:"region_0066_Hv__ventral_zone_of_periventricular_hypothalamus_.glb",               color:[160,255,160]},
+  {id:67,  name:"I (intermediate thalamic nucleus)",                    file:"region_0067_I__Intermediate_thalamic_nucleus_.glb",                                color:[160,160,255]},
+  {id:68,  name:"IAF (inner arcuate fibers)",                           file:"region_0068_IAF__inner_arcuate_fibers_.glb",                                       color:[255,220,100]},
+  {id:69,  name:"ICL (internal cellular layer olfactory bulb)",         file:"region_0069_ICL__internal_cellular_layer_of_olfactory_bulb_.glb",                 color:[100,220,255]},
+  {id:70,  name:"IMRF (intermediate reticular formation)",              file:"region_0070_IMRF__intermediate_reticular_formation_.glb",                          color:[220,100,255]},
+  {id:71,  name:"IN (intermediate nucleus)",                            file:"region_0071_IN__Intermediate_nucleus_.glb",                                        color:[100,255,220]},
+  {id:72,  name:"IO (inferior olive)",                                  file:"region_0072_IO__inferior_olive_.glb",                                               color:[255,100,220]},
+  {id:73,  name:"IR (inferior raphe)",                                  file:"region_0073_IR__inferior_raphe_.glb",                                               color:[220,255,100]},
+  {id:74,  name:"IRF (inferior reticular formation)",                   file:"region_0074_IRF__inferior_reticular_formation_.glb",                               color:[180,100,60]},
+  {id:75,  name:"LC (locus coeruleus)",                                 file:"region_0075_LC__locus_coeruleus_.glb",                                             color:[60,100,180]},
+  {id:76,  name:"LCa (caudal lobe cerebellum)",                         file:"region_0076_LCa__caudal_lobe_of_cerebellum_.glb",                                 color:[100,180,60]},
+  {id:77,  name:"LFB (lateral forebrain bundle)",                       file:"region_0077_LFB__lateral_forebrain_bundle_.glb",                                   color:[180,60,100]},
+  {id:78,  name:"LH (lateral hypothalamic nucleus)",                    file:"region_0078_LH__lateral_hypothalamic_nucleus_.glb",                                color:[60,180,100]},
+  {id:79,  name:"LLF (lateral longitudinal fascicle)",                  file:"region_0079_LLF__lateral_longitudinal_fascicle_.glb",                              color:[100,60,180]},
+  {id:80,  name:"LOT (lateral olfactory tract)",                        file:"region_0080_LOT__lateral_olfactory_tract_.glb",                                    color:[255,180,100]},
+  {id:81,  name:"LR (lateral recess diencephalic ventricle)",           file:"region_0081_LR__lateral_recess_of_diencephalic_ventricle_.glb",                   color:[100,255,180]},
+  {id:82,  name:"LRN (lateral reticular nucleus)",                      file:"region_0082_LRN__lateral_reticular_nucleus_.glb",                                  color:[180,100,255]},
+  {id:83,  name:"MAC (Mauthner cell)",                                  file:"region_0083_MAC__Mauthner_cell_.glb",                                              color:[255,100,60]},
+  {id:84,  name:"MaON (magnocellular octaval nucleus)",                 file:"region_0084_MaON__magnocellular_octaval_nucleus_.glb",                             color:[60,255,100]},
+  {id:85,  name:"MFB (medial forebrain bundle)",                        file:"region_0085_MFB__medial_forebrain_bundle_.glb",                                    color:[100,60,255]},
+  {id:86,  name:"MFN (medial funicular nucleus)",                       file:"region_0086_MFN__medial_funicular_nucleus_.glb",                                   color:[255,60,100]},
+  {id:87,  name:"MLF (medial longitudinal fascicle)",                   file:"region_0087_MLF__medial_longitudinal_fascicle_.glb",                               color:[100,255,60]},
+  {id:88,  name:"MON (medial octavolateralis nucleus)",                 file:"region_0088_MON__medial_octavolateralis_nucleus_.glb",                             color:[60,100,255]},
+  {id:89,  name:"MOT (medial olfactory tract)",                         file:"region_0089_MOT__medial_olfactory_tract_.glb",                                     color:[240,200,160]},
+  {id:90,  name:"NC (commissural nucleus of Cajal)",                    file:"region_0090_NC__commissural_nucleus_of_Cajal_.glb",                                color:[160,200,240]},
+  {id:91,  name:"NDV (nucleus descending trigeminal root)",             file:"region_0091_NDV__nucleus_of_the_descending_trigeminal_root_.glb",                  color:[200,160,240]},
+  {id:92,  name:"NI (isthmic nucleus)",                                 file:"region_0092_NI__isthmic_nucleus_.glb",                                             color:[160,240,200]},
+  {id:93,  name:"NIn (interpeduncular nucleus)",                        file:"region_0093_NIn__interpeduncular_nucleus_.glb",                                    color:[240,160,200]},
+  {id:94,  name:"NLL (nucleus lateral lemniscus)",                      file:"region_0094_NLL__nucleus_of_the_lateral_lemniscus_.glb",                           color:[200,240,160]},
+  {id:95,  name:"nLOT-a (nucleus lateral olfactory tract anterior)",    file:"region_0095_nLOT-a__nucleus_of_the_lateral_olfactory_tract__anterior_part_.glb",  color:[255,140,100]},
+  {id:96,  name:"nLOT-i (nucleus lateral olfactory tract intermediate)",file:"region_0096_nLOT-i__nucleus_of_the_lateral_olfactory_tract__intermediate_part_.glb",color:[100,140,255]},
+  {id:97,  name:"nLOT-p (nucleus lateral olfactory tract posterior)",   file:"region_0097_nLOT-p__nucleus_of_the_lateral_olfactory_tract__posterior_part_.glb", color:[140,100,255]},
+  {id:98,  name:"NLV (nucleus lateralis valvulae)",                     file:"region_0098_NLV__nucleus_lateralis_valvulae_.glb",                                 color:[100,255,140]},
+  {id:99,  name:"NMLF (nucleus medial longitudinal fascicle)",          file:"region_0099_NMLF__nucleus_of_the_medial_longitudinal_fascicle_.glb",               color:[255,100,140]},
+  {id:100, name:"NR (red nucleus)",                                     file:"region_0100_NR__red_nucleus_.glb",                                                 color:[140,255,100]},
+  {id:101, name:"OENc (octavolateralis efferent neurons caudal)",       file:"region_0101_OENc__octavolateralis_efferent_neurons__caudal_part_.glb",             color:[255,80,60]},
+  {id:102, name:"OENr (octavolateralis efferent neurons rostral)",      file:"region_0102_OENr__octavolateralis_efferent_neurons__rostral_part_.glb",            color:[60,80,255]},
+  {id:103, name:"P (posterior thalamic nucleus)",                       file:"region_0103_P__posterior_thalamic_nucleus_.glb",                                   color:[80,255,60]},
+  {id:104, name:"PC (posterior cerebellar tract)",                      file:"region_0104_PC__posterior_cerebellar_tract_.glb",                                   color:[255,60,80]},
+  {id:105, name:"PCN (paracommissural nucleus)",                        file:"region_0105_PCN__paracommissural_nucleus_.glb",                                    color:[60,255,80]},
+  {id:106, name:"PGa (anterior preglomerular nucleus)",                 file:"region_0106_PGa__anterior_preglomerular_nucleus_.glb",                             color:[80,60,255]},
+  {id:107, name:"PGc (caudal preglomerular nucleus)",                   file:"region_0107_PGc__caudal_preglomerular_nucleus_.glb",                               color:[240,160,80]},
+  {id:108, name:"PGl (lateral preglomerular nucleus)",                  file:"region_0108_PGl__lateral_preglomerular_nucleus_.glb",                              color:[80,160,240]},
+  {id:109, name:"PGm (medial preglomerular nucleus)",                   file:"region_0109_PGm__medial_preglomerular_nucleus_.glb",                               color:[160,80,240]},
+  {id:110, name:"PGZ (periventricular gray zone optic tectum)",         file:"region_0110_PGZ__periventricular_gray_zone_of_optic_tectum_.glb",                 color:[80,240,160]},
+  {id:111, name:"PL (perilemniscal nucleus)",                           file:"region_0111_PL__perilemniscal_nucleus_.glb",                                       color:[240,80,160]},
+  {id:112, name:"PLLN (posterior lateral line nerve)",                  file:"region_0112_PLLN__posterior_lateral_line_nerve_.glb",                              color:[160,240,80]},
+  {id:113, name:"PM (magnocellular preoptic nucleus)",                  file:"region_0113_PM__magnocellular_preoptic_nucleus_.glb",                              color:[255,220,180]},
+  {id:114, name:"PMg (gigantocellular magnocellular preoptic nucleus)", file:"region_0114_PMg__gigantocellular_part_of_magnocellular_preoptic_nucleus_.glb",    color:[180,220,255]},
+  {id:115, name:"PO (posterior pretectal nucleus)",                     file:"region_0115_PO__posterior_pretectal_nucleus_.glb",                                 color:[220,180,255]},
+  {id:116, name:"POF (primary olfactory fiber layer)",                  file:"region_0116_POF__primary_olfactory_fiber_layer_.glb",                              color:[180,255,220]},
+  {id:117, name:"PON (posterior octaval nucleus)",                      file:"region_0117_PON__posterior_octaval_nucleus_.glb",                                  color:[255,180,220]},
+  {id:118, name:"PPa (parvocellular preoptic nucleus anterior)",        file:"region_0118_PPa__parvocellular_preoptic_nucleus__anterior_part_.glb",              color:[220,255,180]},
+  {id:119, name:"PPd (periventricular pretectal nucleus dorsal)",       file:"region_0119_PPd__periventricular_pretectal_nucleus__dorsal_part_.glb",             color:[255,140,200]},
+  {id:120, name:"PPp (parvocellular preoptic nucleus posterior)",       file:"region_0120_PPp__parvocellular_preoptic_nucleus__posterior_part_.glb",             color:[200,140,255]},
+  {id:121, name:"PPv (periventricular pretectal nucleus ventral)",      file:"region_0121_PPv__periventricular_pretectal_nucleus__ventral_part_.glb",            color:[140,255,200]},
+  {id:122, name:"PR (posterior recess diencephalic ventricle)",         file:"region_0122_PR__posterior_recess_of_diencephalic_ventricle_.glb",                 color:[255,200,140]},
+  {id:123, name:"PSm (magnocellular superficial pretectal nucleus)",    file:"region_0123_PSm__magnocellular_superficial_pretectal_nucleus_.glb",                color:[140,200,255]},
+  {id:124, name:"PSp (parvocellular superficial pretectal nucleus)",    file:"region_0124_PSp__parvocellular_superficial_pretectal_nucleus_.glb",                color:[200,255,140]},
+  {id:125, name:"PTN (posterior tuberal nucleus)",                      file:"region_0125_PTN__posterior_tuberal_nucleus_.glb",                                  color:[255,120,80]},
+  {id:126, name:"PVO (paraventricular organ)",                          file:"region_0126_PVO__paraventricular_organ_.glb",                                      color:[80,120,255]},
+  {id:127, name:"R (rostrolateral nucleus)",                            file:"region_0127_R__rostrolateral_nucleus_.glb",                                        color:[120,255,80]},
+  {id:128, name:"RT (rostral tegmental nucleus)",                       file:"region_0128_RT__rostral_tegmental_nucleus_.glb",                                   color:[255,80,120]},
+  {id:129, name:"RV (rhombencephalic ventricle)",                       file:"region_0129_RV__rhombencephalic_ventricle_.glb",                                   color:[80,255,120]},
+  {id:130, name:"SC (suprachiasmatic nucleus)",                         file:"region_0130_SC__suprachiasmatic_nucleus_.glb",                                     color:[120,80,255]},
+  {id:131, name:"SCO (subcommissural organ)",                           file:"region_0131_SCO__subcommissural_organ_.glb",                                       color:[255,240,120]},
+  {id:132, name:"SD (dorsal sac)",                                      file:"region_0132_SD__dorsal_sac_.glb",                                                  color:[120,240,255]},
+  {id:133, name:"SG (subglomerular nucleus)",                           file:"region_0133_SG__subglomerular_nucleus_.glb",                                       color:[240,120,255]},
+  {id:134, name:"SGN (secondary gustatory nucleus)",                    file:"region_0134_SGN__secondary_gustatory_nucleus_.glb",                                color:[120,255,240]},
+  {id:135, name:"SGT (secondary gustatory tract)",                      file:"region_0135_SGT__secondary_gustatory_tract_.glb",                                  color:[255,120,240]},
+  {id:136, name:"SO (secondary octaval population)",                    file:"region_0136_SO__secondary_octaval_population_.glb",                                color:[240,255,120]},
+  {id:137, name:"SR (superior raphe)",                                  file:"region_0137_SR__superior_raphe_.glb",                                              color:[200,100,80]},
+  {id:138, name:"SRF (superior reticular formation)",                   file:"region_0138_SRF__superior_reticular_formation_.glb",                               color:[80,100,200]},
+  {id:139, name:"SRN (superior reticular nucleus)",                     file:"region_0139_SRN__superior_reticular_nucleus_.glb",                                 color:[100,200,80]},
+  {id:140, name:"T (tangential nucleus)",                               file:"region_0140_T__tangential_nucleus_.glb",                                           color:[200,80,100]},
+  {id:141, name:"TBS (bulbo-spinal tract)",                             file:"region_0141_TBS__bulbo-spinal_tract_.glb",                                         color:[80,200,100]},
+  {id:142, name:"TelV (telencephalic ventricles)",                      file:"region_0142_TelV__telencephalic_ventricles_.glb",                                  color:[100,80,200]},
+  {id:143, name:"TeO (optic tectum)",                                   file:"region_0143_TeO__optic_tectum_.glb",                                               color:[255,200,60]},
+  {id:144, name:"TeV (tectal ventricle)",                               file:"region_0144_TeV__tectal_ventricle_.glb",                                           color:[60,200,255]},
+  {id:145, name:"TGN (tertiary gustatory nucleus)",                     file:"region_0145_TGN__tertiary_gustatory_nucleus_.glb",                                 color:[200,60,255]},
+  {id:146, name:"TL (longitudinal torus)",                              file:"region_0146_TL__longitudinal_torus_.glb",                                          color:[60,255,200]},
+  {id:147, name:"TLa (lateral torus)",                                  file:"region_0147_TLa__lateral_torus_.glb",                                              color:[255,60,200]},
+  {id:148, name:"TMCa (anterior mesencephalo-cerebellar tract)",        file:"region_0148_TMCa__anterior_mesencephalo-cerebellar_tract_.glb",                    color:[200,255,60]},
+  {id:149, name:"TMCp (posterior mesencephalo-cerebellar tract)",       file:"region_0149_TMCp__posterior_mesencephalo-cerebellar_tract_.glb",                   color:[255,160,120]},
+  {id:150, name:"TPM (pretecto-mammillary tract)",                      file:"region_0150_TPM__pretecto-mammillary_tract_.glb",                                  color:[120,160,255]},
+  {id:151, name:"TPp (periventricular nucleus posterior tuberculum)",   file:"region_0151_TPp__periventricular_nucleus_of_posterior_tuberculum_.glb",            color:[160,120,255]},
+  {id:152, name:"TSc (central nucleus semicircular torus)",             file:"region_0152_TSc__central_nucleus_of_semicircular_torus_.glb",                      color:[120,255,160]},
+  {id:153, name:"TSvl (ventrolateral nucleus semicircular torus)",      file:"region_0153_TSvl__ventrolateral_nucleus_of_semicircular_torus_.glb",               color:[255,120,160]},
+  {id:154, name:"TTB (tecto-bulbar tract)",                             file:"region_0154_TTB__tecto-bulbar_tract_.glb",                                         color:[160,255,120]},
+  {id:155, name:"TTBc (crossed tecto-bulbar tract)",                    file:"region_0155_TTBc__crossed_tecto-bulbar_tract_.glb",                                color:[255,200,100]},
+  {id:156, name:"TTBr (uncrossed tecto-bulbar tract)",                  file:"region_0156_TTBr__uncrossed_tecto-bulbar_tract_.glb",                              color:[100,200,255]},
+  {id:157, name:"TVS (vestibulo-spinal tract)",                         file:"region_0157_TVS__vestibulo-spinal_tract_.glb",                                     color:[200,100,255]},
+  {id:158, name:"Val-g (lateral valvula cerebelli granular layer)",     file:"region_0158_Val-g__lateral_division_of_valvula_cerebelli__granular_layer_.glb",   color:[100,255,200]},
+  {id:159, name:"Val-m (lateral valvula cerebelli molecular layer)",    file:"region_0159_Val-m__lateral_division_of_valvula_cerebelli__molecular_layer_.glb",  color:[255,100,200]},
+  {id:160, name:"Vam-g (medial valvula cerebelli granular layer)",      file:"region_0160_Vam-g__medial_division_of_valvula_cerebelli__granular_layer_.glb",    color:[200,255,100]},
+  {id:161, name:"Vam-m (medial valvula cerebelli molecular layer)",     file:"region_0161_Vam-m__medial_division_of_valvula_cerebelli__molecular_layer_.glb",   color:[180,140,100]},
+  {id:162, name:"VAO (ventral accessory optic nucleus)",                file:"region_0162_VAO__ventral_accessory_optic_nucleus_.glb",                            color:[100,140,180]},
+  {id:163, name:"Vas (vascular lacuna area postrema)",                  file:"region_0163_Vas__vascular_lacuna_of_area_postrema_.glb",                           color:[140,100,180]},
+  {id:164, name:"Vc (central nucleus ventral telencephalon)",           file:"region_0164_Vc__central_nucleus_of_ventral_telencephalon_area_.glb",               color:[100,180,140]},
+  {id:165, name:"Vd-dd (dorsal zone ventral telencephalon)",            file:"region_0165_Vd-dd__dorsal_zone_of_ventral_telencephalon_.glb",                    color:[180,100,140]},
+  {id:166, name:"Vd-vd (ventral zone ventral telencephalon)",           file:"region_0166_Vd-vd__ventral_zone_of_ventral_telencephalon_.glb",                   color:[140,180,100]},
+  {id:167, name:"Vdd (dorsal most zone ventral telencephalon)",         file:"region_0167_Vdd__dorsal_most_zone_of_ventral_telencephalon_.glb",                  color:[255,180,160]},
+  {id:168, name:"Vl (lateral nucleus ventral telencephalon)",           file:"region_0168_Vl__lateral_nucleus_of_ventral_telencephalon_area_.glb",              color:[160,180,255]},
+  {id:169, name:"VL (ventrolateral thalamic nucleus)",                  file:"region_0169_VL__ventrolateral_thalamic_nucleus_.glb",                              color:[180,255,160]},
+  {id:170, name:"VM (ventromedial thalamic nucleus)",                   file:"region_0170_VM__ventromedial_thalamic_nucleus_.glb",                               color:[255,160,180]},
+  {id:171, name:"VOT (ventrolateral optic tract)",                      file:"region_0171_VOT__ventrolateral_optic_tract_.glb",                                  color:[160,255,180]},
+  {id:172, name:"Vp (postcommissural nucleus ventral telencephalon)",   file:"region_0172_Vp__postcommissural_nucleus_of_ventral_telencephalon_area_.glb",      color:[180,160,255]},
+  {id:173, name:"Vs (supracommissural nucleus ventral telencephalon)",  file:"region_0173_Vs__supracommissural_nucleus_of_ventral_telencephalon_area_.glb",     color:[255,220,160]},
+  {id:174, name:"Vv (ventral nucleus ventral telencephalon)",           file:"region_0174_Vv__ventral_nucleus_of_ventral_telencephalon_area_.glb",               color:[160,220,255]},
+  {id:175, name:"ZL (zona limitans)",                                   file:"region_0175_ZL__zona_limitans_.glb",                                               color:[220,160,255]},
+  {id:176, name:"III (oculomotor nerve)",                               file:"region_0176_III__oculomotor_nerve_.glb",                                           color:[160,255,220]},
+  {id:177, name:"IIIm (oculomotor nucleus)",                            file:"region_0177_IIIm__oculomotor_nucleus_.glb",                                        color:[255,160,220]},
+  {id:178, name:"IV (trochlear nerve)",                                 file:"region_0178_IV__trochlear_nerve_.glb",                                              color:[220,255,160]},
+  {id:179, name:"IVm (trochlear nucleus)",                              file:"region_0179_IVm__trochlear_nucleus_.glb",                                           color:[255,120,100]},
+  {id:180, name:"V (trigeminal nerve)",                                 file:"region_0180_V__trigeminal_nerve_.glb",                                              color:[100,120,255]},
+  {id:181, name:"Vmd (trigeminal motor nucleus dorsal)",                file:"region_0181_Vmd__trigeminal_motor_nucleus__dorsal_part_.glb",                      color:[120,255,100]},
+  {id:182, name:"Vmn (mesencephalic nucleus trigeminal nerve)",         file:"region_0182_Vmn__mesencephalic_nucleus_of_the_trigeminal_nerve_.glb",              color:[255,100,120]},
+  {id:183, name:"Vmv (trigeminal motor nucleus ventral)",               file:"region_0183_Vmv__trigeminal_motor_nucleus__ventral_part_.glb",                     color:[100,255,120]},
+  {id:184, name:"Vmvr (ventral trigeminal motor root)",                 file:"region_0184_Vmvr__ventral_trigeminal_motor_root_.glb",                             color:[120,100,255]},
+  {id:185, name:"Vsm (primary sensory trigeminal nucleus)",             file:"region_0185_Vsm__primary_sensory_trigeminal_nucleus_.glb",                         color:[255,200,120]},
+  {id:186, name:"Vsr (sensory root trigeminal nerve)",                  file:"region_0186_Vsr__sensory_root_of_the_trigeminal_nerve_.glb",                       color:[120,200,255]},
+  {id:187, name:"VImc (caudal abducens nerve motor nucleus)",           file:"region_0187_VImc__caudal_abducens_nerve_motor_nucleus_.glb",                       color:[200,120,255]},
+  {id:188, name:"VImr (rostral abducens nerve motor nucleus)",          file:"region_0188_VImr__rostral_abducens_nerve_motor_nucleus_.glb",                      color:[120,255,200]},
+  {id:189, name:"VIILo (facial lobe)",                                  file:"region_0189_VIILo__facial_lobe_.glb",                                              color:[255,120,200]},
+  {id:190, name:"VIIm (facial motor nucleus)",                          file:"region_0190_VIIm__facial_motor_nucleus_.glb",                                      color:[200,255,120]},
+  {id:191, name:"VIImr (facial motor root)",                            file:"region_0191_VIImr__facial_motor_root_.glb",                                        color:[255,160,80]},
+  {id:192, name:"VIIs (sensory root facial nerve)",                     file:"region_0192_VIIs__sensory_root_of_the_facial_nerve_.glb",                          color:[80,160,255]},
+  {id:193, name:"VIII (octaval nerve)",                                 file:"region_0193_VIII__octaval_nerve_.glb",                                              color:[160,255,80]},
+  {id:194, name:"IXLo (glossopharyngeal lobe)",                         file:"region_0194_IXLo__glossopharyngeal_lobe_.glb",                                     color:[255,80,160]},
+  {id:195, name:"IXm (glossopharyngeal nerve motor nucleus)",           file:"region_0195_IXm__glossopharyngeal_nerve_motor_nucleus_.glb",                       color:[80,255,160]},
+  {id:196, name:"X (vagal nerve)",                                      file:"region_0196_X__vagal_nerve_.glb",                                                  color:[160,80,255]},
+  {id:197, name:"XLo (vagal lobe)",                                     file:"region_0197_XLo__vagal_lobe_.glb",                                                 color:[255,240,80]},
+  {id:198, name:"Xm (vagal motor nucleus)",                             file:"region_0198_Xm__vagal_motor_nucleus_.glb",                                         color:[80,240,255]},
+  {id:900, name:"UnkD (unknown diencephalon)",                          file:"region_0900_UnkD__unknown_diencephalon_.glb",                                      color:[160,160,160]},
+  {id:901, name:"UnkMS (unknown mesencephalon)",                        file:"region_0901_UnkMS__unknown_mesencephalon_.glb",                                    color:[140,140,140]},
+  {id:902, name:"UnkR (unknown rhombencephalon)",                       file:"region_0902_UnkR__unkonwn_rhombencephalon_.glb",                                   color:[120,120,120]},
+  {id:903, name:"UnkSC (unknown spinal cord)",                          file:"region_0903_UnkSC__unknown_spinal_cord_.glb",                                      color:[100,100,100]},
+  {id:904, name:"UnkVT (unknown ventral telencephalon)",                file:"region_0904_UnkVT__unknown_ventral_telencephalon_.glb",                            color:[180,180,180]}
+];
+
+// ── Load regions ──────────────────────────────────────────────
+function loadRegions(regions) {
+  var bar = document.getElementById('loading-bar');
+  var txt = document.getElementById('loading-text');
+  var loaded = 0, total = regions.length;
+  txt.textContent = '0 / ' + total;
+
+  var promises = regions.map(function(reg) {
+    // UPDATED LINE: Added 'models/' prefix to the filename
+    var modelPath = 'models/' + reg.file; 
+    
+    return loadGLB(modelPath).then(function(geo) {
+      var c = reg.color;
+      var mat = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(c[0]/255, c[1]/255, c[2]/255),
+        transparent: true, opacity: currentOpacity, shininess: 40
+      });
+      var mesh = new THREE.Mesh(geo, mat);
+      mesh.userData.regionId = reg.id;
+      brainGroup.add(mesh);
+      meshMap[reg.id] = mesh;
+      regionMeta[reg.id] = reg;
+    }).catch(function(err) {
+        console.error("Could not load model:", modelPath, err);
+    }).finally(function() {
+      loaded++;
+      bar.style.width = (loaded / total * 100) + '%';
+      txt.textContent = loaded + ' / ' + total;
+    });
+  });
+
+  Promise.all(promises).then(function() {
+    var box = new THREE.Box3();
+    brainGroup.children.forEach(function(m) { box.expandByObject(m); });
+    var center = box.getCenter(new THREE.Vector3());
+    brainGroup.children.forEach(function(m) { m.position.sub(center); });
+    var size = box.getSize(new THREE.Vector3());
+    brainGroup.scale.setScalar(1.2 / Math.max(size.x, size.y, size.z));
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('loaded-count').textContent = Object.keys(meshMap).length + ' regions loaded | By Ian Lee 🐟';
+    buildSidebar(regions);
+  });
+}
+
+// ── Sidebar ───────────────────────────────────────────────────
+function buildSidebar(regions) {
+  var listEl = document.getElementById('region-list');
+  listEl.innerHTML = '';
+  regions.forEach(function(reg) {
+    if (!meshMap[reg.id]) return;
+    var c = reg.color;
+    var item = document.createElement('div');
+    item.className = 'region-item';
+    item.dataset.id = reg.id;
+    item.innerHTML =
+      '<div class="swatch" style="background:rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')"></div>' +
+      '<span class="region-name" title="' + reg.name + '">' + reg.name + '</span>' +
+      '<span class="eye-btn">●</span>';
+    item.addEventListener('click', function(e) {
+      if (e.target.classList.contains('eye-btn')) toggleRegion(reg.id, item);
+      else selectRegion(reg.id, item, e.shiftKey);
+    });
+    listEl.appendChild(item);
+  });
+}
+
+function toggleRegion(id, item) {
+  var mesh = meshMap[id];
+  if (!mesh) return;
+  mesh.visible = !mesh.visible;
+  item.classList.toggle('hidden-region', !mesh.visible);
+}
+
+// ── Raycaster ─────────────────────────────────────────────────
+var raycaster = new THREE.Raycaster();
+var mouse2d = new THREE.Vector2();
+canvas.addEventListener('click', function(e) {
+  if (isDrag || isPan) return;
+  var rect = canvas.getBoundingClientRect();
+  mouse2d.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse2d.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse2d, camera);
+  var visible = brainGroup.children.filter(function(m) { return m.visible; });
+  var hits = raycaster.intersectObjects(visible);
+  if (hits.length > 0) {
+    var id = hits[0].object.userData.regionId;
+    var item = document.querySelector('.region-item[data-id="' + id + '"]');
+    selectRegion(id, item, e.shiftKey);
+  }
+});
+
+// ── Button handlers ───────────────────────────────────────────
+document.getElementById('info-close').addEventListener('click', function() {
+  selectedIds.forEach(function(id) { unhighlightMesh(id); });
+  document.querySelectorAll('.region-item').forEach(function(el) { el.classList.remove('active'); });
+  selectedIds.clear();
+  lastSelectedId = null;
+  document.getElementById('info').style.display = 'none';
+});
+
+document.getElementById('info-hide').addEventListener('click', function() {
+  if (lastSelectedId !== null) hideRegionById(lastSelectedId);
+});
+
+document.getElementById('btn-rotate').addEventListener('click', function() {
+  autoRotate = !autoRotate;
+  this.textContent = 'Auto-rotate: ' + (autoRotate ? 'ON' : 'OFF');
+});
+
+document.getElementById('btn-reset').addEventListener('click', function() {
+  panX = 0; panY = 0;
+  quaternion.setFromEuler(new THREE.Euler(0.2, 0, 0));
+  camera.position.z = 2.5;
+});
+
+document.getElementById('btn-all').addEventListener('click', function() {
+  Object.values(meshMap).forEach(function(m) { m.visible = true; });
+  document.querySelectorAll('.region-item').forEach(function(el) { el.classList.remove('hidden-region'); });
+});
+
+document.getElementById('btn-none').addEventListener('click', function() {
+  Object.values(meshMap).forEach(function(m) { m.visible = false; });
+  document.querySelectorAll('.region-item').forEach(function(el) { el.classList.add('hidden-region'); });
+});
+
+document.getElementById('opacity-slider').addEventListener('input', function(e) {
+  currentOpacity = parseInt(e.target.value) / 100;
+  document.getElementById('opacity-val').textContent = e.target.value + '%';
+  Object.entries(meshMap).forEach(function(entry) {
+    if (!selectedIds.has(parseInt(entry[0]))) entry[1].material.opacity = currentOpacity;
+  });
+});
+
+document.getElementById('shine-slider').addEventListener('input', function(e) {
+  document.getElementById('shine-val').textContent = e.target.value;
+  Object.values(meshMap).forEach(function(m) { m.material.shininess = parseInt(e.target.value); });
+});
+
+document.getElementById('search').addEventListener('input', function(e) {
+  var q = e.target.value.toLowerCase();
+  document.querySelectorAll('.region-item').forEach(function(el) {
+    el.style.display = el.querySelector('.region-name').textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+
+// ── Animate ───────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  if (autoRotate && !isDrag && !isPan) {
+    var q = new THREE.Quaternion();
+    q.setFromAxisAngle(new THREE.Vector3(0,1,0), 0.003);
+    quaternion.premultiply(q);
+  }
+  brainGroup.quaternion.copy(quaternion);
+  brainGroup.position.x = panX;
+  brainGroup.position.y = panY;
+  renderer.render(scene, camera);
+}
+animate();
+
+// ── Start ─────────────────────────────────────────────────────
+loadRegions(REGIONS);
+</script>
+</body>
+</html>
